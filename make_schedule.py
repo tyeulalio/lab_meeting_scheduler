@@ -5,8 +5,39 @@ import pandas as pd
 import pytz
 import dateutil.tz
 import time
+# connecting to google drive
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 
+
+class Spreadsheet():
+    def __init__(self):
+        # use creds to create a client to interact with the Google Drive API
+        scope = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+                ]
+        creds = ServiceAccountCredentials.from_json_keyfile_name('.ignore/client_secret.json', scope)
+        client = gspread.authorize(creds)
+
+        # Find a workbook by name and open the first sheet
+        self.sheet = client.open("Montgomery Lab Meeting Data")
+
+        # extract sheets
+        self.response_sheet = self.sheet.get_worksheet(0)
+        self.responses_sorted_sheet = self.sheet.get_worksheet(1)
+        self.lab_presenters_sheet = self.sheet.get_worksheet(2)
+        self.rotation_students_sheet = self.sheet.get_worksheet(3)
+        self.breaks_sheet = self.sheet.get_worksheet(4)
+
+        # example of pulling data from a sheet
+        # test = self.sheet.get_worksheet(1)
+        # list_of_hashes = test.get_all_records()
+        # print(list_of_hashes)
+
+
+    
 
 class Calendar():
     def __init__(self, input_file):
@@ -22,8 +53,6 @@ class Calendar():
                 'Saturday': 5,
                 'Sunday': 6}
         self.schedule = {}
-        # self.special_days = special_days
-        # self.cancel = False
 
         # read input file
         self.read_input()
@@ -157,10 +186,18 @@ class Calendar():
             meeting_dates.append(d)
             d += timedelta(days=7)
 
+        # add two more days for special meetings
+        # for i in range(2):
+            # meeting_dates.append(d)
+            # d += timedelta(days=7)
+
         return meeting_dates
 
    
     def get_offset(self, dt):
+        # -- we don't really need to do this because
+        # the ics file takes timezone as a string anyways
+        #
         # get the appropriate UTC offset for the current time
         # this dependnds on whether we are in daylight savings time or not
             
@@ -194,25 +231,30 @@ class Calendar():
         first_date = avail_dates[0]
         last_date = avail_dates[-1]
 
-
-        # special_days = self.special_days
-        # assign dates if they're set to true
-        if self.data_dict['housekeeping'] == "True":
-            schedule[first_date] = "Lab Meeting: Housekeeping Meeting (Stephen)"
-        if self.data_dict['advocacy'] == "True":
-            schedule[last_date] = "Lab Meeting: Advocacy Meeting"
-
+        # set advocacy date to last day
+        advocacy_date = last_date
 
         # assign rotation meeting if there are rotation students
         if (len(self.data_dict['rotation_students']) > 0) & (self.data_dict['rotation'] == "True"):
             # if no advocacy meeting, schedule on last day
             # else, schedule second to last day
-            rotation_date = avail_dates[-2]
+            rotation_date = last_date
 
-            if self.data_dict['advocacy'] == "False":
-                rotation_date = last_date
+            schedule[rotation_date] = "Rotation Students Lab Meeting"
 
-            schedule[rotation_date] = "Lab Meeting: Rotation Students"
+            # if there's a rotation meeting, set advocacy to second to last date
+            advocacy_date = avail_dates[-2]
+
+
+        # special_days = self.special_days
+        # assign dates if they're set to true
+        if self.data_dict['housekeeping'] == "True":
+            schedule[first_date] = "Housekeeping (Stephen) Lab Meeting"
+        if self.data_dict['advocacy'] == "True":
+            schedule[advocacy_date] = "Advocacy Lab Meeting"
+
+
+
 
         return schedule
 
@@ -245,7 +287,7 @@ class Calendar():
             next_date = avail_dates[i]
 
             # assign this person to this day
-            schedule[next_date] = "Lab Meeting: {}".format(next_presenter)
+            schedule[next_date] = "{}: Lab Meeting".format(next_presenter)
 
 
         return schedule
@@ -312,6 +354,15 @@ class Calendar():
     def write_ics(self):
         # write the schedule to an ics file
         output_file = self.data_dict['output_file']
+
+        today = datetime.date(datetime.now())
+
+        
+        if self.data_dict['cancel'] == "True":
+            output_file = "{}_{}_cancel.ics".format(today, output_file) 
+        else:
+            output_file = "{}_{}.ics".format(today, output_file)
+
 
         # open the output file
         output = open(output_file, 'w+')
@@ -390,24 +441,15 @@ class Calendar():
 
 def main():
     # choose whether we should have the special meetings set up
-    # housekeeping = False
-    # advocacy = False
-    # rotation = True
-    # output_file = "lab_meeting_schedule_cancel.ics"
-    # cancel = True
 
-    # special_days = {'housekeeping': housekeeping,
-            # 'advocacy': advocacy,
-            # 'rotation': rotation}
+    spreadsheet = Spreadsheet() 
+    # exit()
 
     # read input file
     input_file = "lab_calendar_data.txt"
 
     # read in the calendar data
     cal_data = Calendar(input_file)
-
-    # set the cancel flag
-    # cal_data.cancel = cancel
 
     # for testing
     cal_data.print_datadict()
@@ -417,6 +459,12 @@ def main():
 
     # write schedule to ics file
     cal_data.write_ics()
+
+
+    # write the cancel file also
+    cal_data.data_dict['cancel'] = "True"
+    cal_data.write_ics()
+
 
 
 if __name__ == '__main__':
